@@ -44,10 +44,7 @@ contract MultiSigWallet {
 
     constructor(address[] memory _owners, uint256 _numConfirmationsRequired) {
         require(_owners.length > 0, "Owners required");
-        require(
-            _numConfirmationsRequired > 0 && _numConfirmationsRequired <= _owners.length,
-            "Invalid number of confirmations"
-        );
+        require(_numConfirmationsRequired > 0 && _numConfirmationsRequired <= _owners.length, "Invalid number of confirmations");
         for (uint256 i = 0; i < _owners.length; i++) {
             address owner = _owners[i];
             require(owner != address(0), "Invalid owner");
@@ -58,7 +55,7 @@ contract MultiSigWallet {
         numConfirmationsRequired = _numConfirmationsRequired;
     }
 
-    function deposit() public payable {
+    receive() external payable {
         emit Deposit(msg.sender, msg.value, transactions.length);
     }
 
@@ -98,10 +95,7 @@ contract MultiSigWallet {
         transactionExists(_txIndex)
         notExecuted(_txIndex)
     {
-        require(
-            transactions[_txIndex].numConfirmations >= numConfirmationsRequired,
-            "Not enough confirmations"
-        );
+        require(transactions[_txIndex].numConfirmations >= numConfirmationsRequired, "Not enough confirmations");
         Transaction storage txn = transactions[_txIndex];
         txn.executed = true;
         (bool success, ) = txn.to.call{value: txn.value}(txn.data);
