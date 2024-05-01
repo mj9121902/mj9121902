@@ -12,33 +12,32 @@ contract MultiSigWallet {
         bytes data;
         bool executed;
         mapping(address => bool) isConfirmed;
-        uint256 numConfirmations;
     }
 
-    Transaction[] public transactions;
+    mapping(bytes32 => Transaction) public transactions;
 
-    event Deposit(address indexed sender, uint256 value, uint256 indexed txIndex);
-    event Submission(uint256 indexed txIndex);
-    event Confirmation(address indexed sender, uint256 indexed txIndex);
-    event Execution(uint256 indexed txIndex);
+    event Deposit(address indexed sender, uint256 value, bytes32 indexed txHash);
+    event Submission(bytes32 indexed txHash);
+    event Confirmation(address indexed sender, bytes32 indexed txHash);
+    event Execution(bytes32 indexed txHash);
 
     modifier onlyOwner() {
         require(isOwner[msg.sender], "Not an owner");
         _;
     }
 
-    modifier transactionExists(uint256 _txIndex) {
-        require(_txIndex < transactions.length, "Transaction does not exist");
+    modifier transactionExists(bytes32 _txHash) {
+        require(transactions[_txHash].to != address(0), "Transaction does not exist");
         _;
     }
 
-    modifier notExecuted(uint256 _txIndex) {
-        require(!transactions[_txIndex].executed, "Transaction already executed");
+    modifier notExecuted(bytes32 _txHash) {
+        require(!transactions[_txHash].executed, "Transaction already executed");
         _;
     }
 
-    modifier notConfirmed(uint256 _txIndex) {
-        require(!transactions[_txIndex].isConfirmed[msg.sender], "Transaction already confirmed");
+    modifier notConfirmed(bytes32 _txHash) {
+        require(!transactions[_txHash].isConfirmed[msg.sender], "Transaction already confirmed");
         _;
     }
 
@@ -56,50 +55,57 @@ contract MultiSigWallet {
     }
 
     receive() external payable {
-        emit Deposit(msg.sender, msg.value, transactions.length);
+        emit Deposit(msg.sender, msg.value, bytes32(0));
     }
 
     function submitTransaction(address _to, uint256 _value, bytes memory _data)
         public
         onlyOwner
     {
-        uint256 txIndex = transactions.length;
-        transactions.push(Transaction({
+        bytes32 txHash = keccak256(abi.encodePacked(_to, _value, _data, block.timestamp));
+        transactions[txHash] = Transaction({
             to: _to,
             value: _value,
             data: _data,
-            executed: false,
-            numConfirmations: 0
-        }));
-        emit Submission(txIndex);
+            executed: false
+        });
+        emit Submission(txHash);
     }
 
-    function confirmTransaction(uint256 _txIndex)
+    function confirmTransaction(bytes32 _txHash)
         public
         onlyOwner
-        transactionExists(_txIndex)
-        notExecuted(_txIndex)
-        notConfirmed(_txIndex)
+        transactionExists(_txHash)
+        notExecuted(_txHash)
+        notConfirmed(_txHash)
     {
-        transactions[_txIndex].isConfirmed[msg.sender] = true;
-        transactions[_txIndex].numConfirmations++;
-        emit Confirmation(msg.sender, _txIndex);
-        if (transactions[_txIndex].numConfirmations >= numConfirmationsRequired) {
-            executeTransaction(_txIndex);
+        transactions[_txHash].isConfirmed[msg.sender] = true;
+        emit Confirmation(msg.sender, _txHash);
+        if (getConfirmationCount(_txHash) >= numConfirmationsRequired) {
+            executeTransaction(_txHash);
         }
     }
 
-    function executeTransaction(uint256 _txIndex)
+    function executeTransaction(bytes32 _txHash)
         public
         onlyOwner
-        transactionExists(_txIndex)
-        notExecuted(_txIndex)
+        transactionExists(_txHash)
+        notExecuted(_txHash)
     {
-        require(transactions[_txIndex].numConfirmations >= numConfirmationsRequired, "Not enough confirmations");
-        Transaction storage txn = transactions[_txIndex];
+        require(getConfirmationCount(_txHash) >= numConfirmationsRequired, "Not enough confirmations");
+        Transaction storage txn = transactions[_txHash];
         txn.executed = true;
         (bool success, ) = txn.to.call{value: txn.value}(txn.data);
         require(success, "Transaction execution failed");
-        emit Execution(_txIndex);
+        emit Execution(_txHash);
+    }
+
+    function getConfirmationCount(bytes32 _txHash) public view returns (uint256 count) {
+        Transaction storage txn = transactions[_txHash];
+        for (uint256 i = 0; i < owners.length; i++) {
+            if (txn.isConfirmed[owners[i]]) {
+                count++;
+            }
+        }
     }
 }
